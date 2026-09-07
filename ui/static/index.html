@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="th" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Thai-Checkers-AlphaZero | หมากฮอสไทย ปัญญาประดิษฐ์ไร้เทียมทาน</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js for Live Real-Time Training Curves -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Google Fonts: Prompt & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Prompt', 'Inter', 'sans-serif'],
+          },
+          colors: {
+            board: {
+              light: '#d6c5a5',
+              dark: '#543d2b',
+              border: '#2e1f14',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .checker-board {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+      aspect-ratio: 1 / 1;
+      width: 100%;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), inset 0 0 20px rgba(0,0,0,0.5);
+    }
+    .board-cell {
+      aspect-ratio: 1 / 1;
+      width: 100%;
+      height: 100%;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      transition: background-color 0.15s ease;
+    }
+    .piece {
+      width: 80%;
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      position: relative;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+      z-index: 10;
+    }
+    .piece:hover {
+      transform: scale(1.08);
+    }
+    .piece-p1 {
+      background: radial-gradient(circle at 35% 30%, #ffffff 0%, #e2e8f0 45%, #94a3b8 100%);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.9), inset 0 -3px 6px rgba(0,0,0,0.3);
+      border: 2px solid #cbd5e1;
+    }
+    .piece-p2 {
+      background: radial-gradient(circle at 35% 30%, #334155 0%, #1e293b 50%, #0f172a 100%);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.6), inset 0 2px 4px rgba(255,255,255,0.2), inset 0 -3px 6px rgba(0,0,0,0.8);
+      border: 2px solid #475569;
+    }
+    .king-badge {
+      font-size: 1.4rem;
+      color: #f59e0b;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+    }
+    .selected-sq {
+      background-color: rgba(234, 179, 8, 0.45) !important;
+      outline: 3px solid #eab308;
+      z-index: 5;
+    }
+    .valid-dest {
+      position: relative;
+      cursor: pointer;
+    }
+    .valid-dest::after {
+      content: '';
+      position: absolute;
+      width: 28%;
+      height: 28%;
+      border-radius: 9999px;
+      background-color: rgba(34, 197, 94, 0.85);
+      box-shadow: 0 0 12px rgba(34, 197, 94, 0.9);
+      animation: pulse 1.5s infinite;
+      z-index: 15;
+    }
+    .forced-indicator {
+      box-shadow: inset 0 0 16px #ef4444 !important;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <span class="text-2xl">🇹🇭</span>
+        <div>
+          <h1 class="font-bold text-lg tracking-tight bg-gradient-to-r from-amber-400 via-orange-300 to-amber-200 bg-clip-text text-transparent">
+            Thai-Checkers-AlphaZero
+          </h1>
+          <p class="text-xs text-slate-400">Deep RL & MCTS • Superhuman Thai Checkers Engine</p>
+        </div>
+      </div>
+      <!-- Mode Switcher Tabs -->
+      <div class="flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700 shadow-inner">
+        <button id="tab-play-mode" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 text-white transition flex items-center gap-1.5 shadow">
+          <span>🎮</span> โหมดเล่นเกม (Play)
+        </button>
+        <button id="tab-train-mode" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+          <span>🚀</span> โหมดฝึกสอน AI สด (Live Training)
+        </button>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <span id="chip-status" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-950 text-emerald-400 border border-emerald-800">
+          <span class="w-1.5 h-1.5 mr-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          Apple Silicon MPS
+        </span>
+        <button id="btn-sound" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition text-sm">
+          🔊 เสียง: เปิด
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ======================================================= -->
+  <!-- PANEL 1: Interactive Play & Analysis Mode (Existing UI) -->
+  <!-- ======================================================= -->
+  <div id="panel-play-mode" class="block w-full">
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+    
+    <!-- Left Column: The Board -->
+    <div class="lg:col-span-7 flex flex-col items-center">
+      <!-- Status Notice Banner -->
+      <div id="status-banner" class="w-full mb-3 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-sm shadow-md">
+        <div class="flex items-center space-x-2">
+          <span id="turn-dot" class="w-3 h-3 rounded-full bg-amber-400 animate-pulse"></span>
+          <span id="turn-text" class="font-medium text-slate-200">ตาเดิน: ผู้เล่น 1 (สีขาว)</span>
+        </div>
+        <div id="forced-alert" class="hidden text-xs font-semibold px-2.5 py-1 bg-red-950/80 text-red-400 border border-red-800 rounded-lg animate-bounce">
+          ⚡ กฎบังคับกิน (Forced Capture)!
+        </div>
+      </div>
+
+      <!-- Checkerboard Outer Frame with Coordinates A-H and 1-8 -->
+      <div class="p-3 bg-board-border rounded-2xl shadow-2xl border-4 border-[#1f150d] w-full max-w-[560px]">
+        <!-- Top File Labels A-H -->
+        <div class="grid grid-cols-8 text-center text-amber-200/70 font-mono text-xs font-bold pb-1.5 pl-6 pr-6">
+          <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
+        </div>
+
+        <div class="flex items-stretch">
+          <!-- Left Rank Labels 8-1 -->
+          <div class="grid grid-rows-8 text-center text-amber-200/70 font-mono text-xs font-bold w-6 pr-1.5 py-0">
+            <span class="flex items-center justify-center">8</span>
+            <span class="flex items-center justify-center">7</span>
+            <span class="flex items-center justify-center">6</span>
+            <span class="flex items-center justify-center">5</span>
+            <span class="flex items-center justify-center">4</span>
+            <span class="flex items-center justify-center">3</span>
+            <span class="flex items-center justify-center">2</span>
+            <span class="flex items-center justify-center">1</span>
+          </div>
+
+          <!-- The 8x8 Board -->
+          <div id="board" class="checker-board flex-1 rounded-lg overflow-hidden border border-amber-950/40">
+            <!-- 64 cells generated by JS -->
+          </div>
+
+          <!-- Right Rank Labels 8-1 -->
+          <div class="grid grid-rows-8 text-center text-amber-200/70 font-mono text-xs font-bold w-6 pl-1.5 py-0">
+            <span class="flex items-center justify-center">8</span>
+            <span class="flex items-center justify-center">7</span>
+            <span class="flex items-center justify-center">6</span>
+            <span class="flex items-center justify-center">5</span>
+            <span class="flex items-center justify-center">4</span>
+            <span class="flex items-center justify-center">3</span>
+            <span class="flex items-center justify-center">2</span>
+            <span class="flex items-center justify-center">1</span>
+          </div>
+        </div>
+
+        <!-- Bottom File Labels A-H -->
+        <div class="grid grid-cols-8 text-center text-amber-200/70 font-mono text-xs font-bold pt-1.5 pl-6 pr-6">
+          <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
+        </div>
+      </div>
+
+      <!-- Bottom Control Bar -->
+      <div class="w-full max-w-[560px] mt-4 flex items-center justify-between gap-3">
+        <button id="btn-new-game" class="flex-1 py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 font-semibold text-sm transition shadow-lg shadow-amber-900/40 flex items-center justify-center gap-2">
+          🔄 เริ่มเกมใหม่
+        </button>
+        <button id="btn-ai-move" class="flex-1 py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm border border-slate-700 transition flex items-center justify-center gap-2">
+          🤖 ให้ AI เดิน
+        </button>
+        <button id="btn-auto-play" class="flex-1 py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 font-semibold text-sm border border-slate-700 transition flex items-center justify-center gap-2">
+          ▶️ AI ดวล AI
+        </button>
+      </div>
+    </div>
+
+    <!-- Right Column: AI Brain & Diagnostics -->
+    <div class="lg:col-span-5 space-y-5">
+      
+      <!-- AI Evaluation Gauge -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-md shadow-xl">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <span>🧠</span> การประเมินรูปเกม (AI Value Head)
+          </h2>
+          <span id="eval-score" class="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-amber-400">+0.00</span>
+        </div>
+        
+        <!-- Win Probability Bar -->
+        <div class="w-full h-4 bg-slate-800 rounded-full overflow-hidden flex border border-slate-700 p-0.5">
+          <div id="bar-p1" class="h-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-300 rounded-l-full" style="width: 50%;"></div>
+          <div id="bar-p2" class="h-full bg-gradient-to-r from-slate-600 to-slate-800 transition-all duration-300 rounded-r-full" style="width: 50%;"></div>
+        </div>
+        <div class="flex justify-between text-[11px] text-slate-400 mt-1.5 font-medium">
+          <span id="pct-p1">ผู้เล่น 1 (ขาว): 50%</span>
+          <span id="pct-p2">ผู้เล่น 2 (ดำ): 50%</span>
+        </div>
+      </div>
+
+      <!-- Settings Card -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-md shadow-xl space-y-4">
+        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">⚙️ ตั้งค่าความฉลาด AI</h2>
+        
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">ระดับฝีมือ AI (Engine & Simulations):</label>
+          <select id="select-difficulty" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+            <option value="az-50">AlphaZero (ระดับเริ่มต้น - 50 MCTS Sims)</option>
+            <option value="az-150" selected>AlphaZero (ระดับชำนาญ - 150 MCTS Sims)</option>
+            <option value="az-400">AlphaZero (ระดับเซียน - 400 MCTS Sims)</option>
+            <option value="minimax">Minimax Alpha-Beta Heuristic Baseline</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">คุณเล่นฝ่าย:</label>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="btn-side-white" class="py-2 px-3 rounded-xl bg-amber-600 font-semibold text-xs transition border border-amber-500">
+              ⚪ สีขาว (เดินก่อน)
+            </button>
+            <button id="btn-side-black" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition border border-slate-700">
+              ⚫ สีดำ (เดินทีหลัง)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MCTS Thought Stream -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-md shadow-xl">
+        <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <span>🔮</span> MCTS Thought Stream (ตาเดินที่ AI กำลังพิจารณา)
+        </h2>
+        <div id="mcts-candidates" class="space-y-2 text-xs">
+          <p class="text-slate-500 italic">รอ AI เดินเพื่อวิเคราะห์แผนการเดินล่วงหน้า...</p>
+        </div>
+      </div>
+
+      <!-- Game History Log -->
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-md shadow-xl">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">📜 บันทึกตาเดิน (Move History)</h2>
+          <span id="ply-counter" class="text-xs text-slate-400 font-mono">0 Plies</span>
+        </div>
+        <div id="move-history" class="max-h-36 overflow-y-auto space-y-1 text-xs text-slate-300 font-mono pr-2">
+          <p class="text-slate-500 italic">เริ่มต้นเกม...</p>
+        </div>
+      </div>
+
+    </div>
+  </main>
+  </div>
+
+  <!-- ======================================================= -->
+  <!-- PANEL 2: Live AI Training Dashboard (Mode 2)            -->
+  <!-- ======================================================= -->
+  <div id="panel-train-mode" class="hidden max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    
+    <!-- Top Telemetry KPI Bar -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg">
+        <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">🚀 สถานะการเทรน</p>
+        <p id="train-status-text" class="text-sm font-bold text-amber-400 mt-1">พร้อมเริ่มการฝึกฝน (Idle)</p>
+      </div>
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg">
+        <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">🔄 รอบที่ (Iteration)</p>
+        <p id="train-iter-display" class="text-lg font-mono font-bold text-slate-200 mt-1">0 / 0</p>
+      </div>
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg">
+        <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">🎮 เกมจำลอง (Self-Play)</p>
+        <p id="train-ep-display" class="text-lg font-mono font-bold text-slate-200 mt-1">0 / 0</p>
+      </div>
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg">
+        <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">🧠 ตัวอย่างในสมอง (Buffer)</p>
+        <p id="train-buffer-display" class="text-lg font-mono font-bold text-emerald-400 mt-1">0 Samples</p>
+      </div>
+      <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg col-span-2 sm:col-span-1">
+        <p class="text-[11px] font-medium text-slate-400 uppercase tracking-wider">🏆 Arena Win Rate</p>
+        <p id="train-winrate-display" class="text-lg font-mono font-bold text-cyan-400 mt-1">- %</p>
+      </div>
+    </div>
+
+    <!-- Main Grid: Live Board (Left) & Real-time Charts & Controls (Right) -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+
+      <!-- Left Column: Live Self-Play Board Visualizer -->
+      <div class="lg:col-span-6 flex flex-col items-center">
+        <!-- Live Board Header Notice -->
+        <div class="w-full mb-3 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between text-sm shadow-md">
+          <div class="flex items-center space-x-2">
+            <span id="train-turn-dot" class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="train-board-title" class="font-medium text-slate-200">♟️ กระดานฝึกซ้อมสด (Self-Play)</span>
+          </div>
+          <span id="train-last-move" class="text-xs font-mono font-semibold px-2 py-0.5 rounded bg-slate-800 text-amber-300">
+            ยังไม่ได้เริ่ม
+          </span>
+        </div>
+
+        <!-- 8x8 Thai Checkers Board Frame -->
+        <div class="p-3 bg-board-border rounded-2xl shadow-2xl border-4 border-[#1f150d] w-full max-w-[520px]">
+          <!-- Top File Labels A-H -->
+          <div class="grid grid-cols-8 text-center text-amber-200/70 font-mono text-xs font-bold pb-1.5 pl-6 pr-6">
+            <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
+          </div>
+
+          <div class="flex items-stretch">
+            <!-- Left Rank Labels 8-1 -->
+            <div class="grid grid-rows-8 text-center text-amber-200/70 font-mono text-xs font-bold w-6 pr-1.5 py-0">
+              <span class="flex items-center justify-center">8</span>
+              <span class="flex items-center justify-center">7</span>
+              <span class="flex items-center justify-center">6</span>
+              <span class="flex items-center justify-center">5</span>
+              <span class="flex items-center justify-center">4</span>
+              <span class="flex items-center justify-center">3</span>
+              <span class="flex items-center justify-center">2</span>
+              <span class="flex items-center justify-center">1</span>
+            </div>
+
+            <!-- The Live Self-Play Board -->
+            <div id="train-board" class="checker-board flex-1 rounded-lg overflow-hidden border border-amber-950/40">
+              <!-- Rendered dynamically -->
+            </div>
+
+            <!-- Right Rank Labels 8-1 -->
+            <div class="grid grid-rows-8 text-center text-amber-200/70 font-mono text-xs font-bold w-6 pl-1.5 py-0">
+              <span class="flex items-center justify-center">8</span>
+              <span class="flex items-center justify-center">7</span>
+              <span class="flex items-center justify-center">6</span>
+              <span class="flex items-center justify-center">5</span>
+              <span class="flex items-center justify-center">4</span>
+              <span class="flex items-center justify-center">3</span>
+              <span class="flex items-center justify-center">2</span>
+              <span class="flex items-center justify-center">1</span>
+            </div>
+          </div>
+
+          <!-- Bottom File Labels A-H -->
+          <div class="grid grid-cols-8 text-center text-amber-200/70 font-mono text-xs font-bold pt-1.5 pl-6 pr-6">
+            <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
+          </div>
+        </div>
+
+        <p class="text-xs text-slate-500 mt-3 text-center">
+          * กระดานจำลองนี้จะแสดงการเดินหมากที่ AlphaZero แข่งกับตัวเอง (Self-Play) แบบสดๆ ทุกตาเดิน
+        </p>
+      </div>
+
+      <!-- Right Column: Live Charts & Controls -->
+      <div class="lg:col-span-6 space-y-5">
+        
+        <!-- Live Loss Chart -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-md shadow-xl">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <span>📈</span> กราฟการเรียนรู้สด (Training Loss Curve)
+            </h2>
+            <span class="text-[11px] text-slate-400">ยิ่งกราฟลดลง = สมองยิ่งฉลาด</span>
+          </div>
+          <div class="w-full h-48">
+            <canvas id="lossChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Training Controls Card -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-md shadow-xl space-y-4">
+          <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+            <span>⚙️</span> แผงควบคุมการฝึกฝน AI
+          </h2>
+
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1 font-medium">รอบการเทรน (Iters):</label>
+              <input id="input-train-iters" type="number" value="5" min="1" max="100" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1 font-medium">เกมต่อรอบ (Episodes):</label>
+              <input id="input-train-episodes" type="number" value="5" min="1" max="50" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1 font-medium">MCTS Sims ต่อตา:</label>
+              <input id="input-train-sims" type="number" value="50" min="20" max="200" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+            </div>
+          </div>
+
+          <!-- Speed & Visualization Mode -->
+          <div>
+            <label class="block text-[11px] text-slate-400 mb-1.5 font-medium">ความเร็วและการแสดงผล (Speed Mode):</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btn-speed-turbo" class="py-2 px-3 rounded-xl bg-amber-600 font-semibold text-xs transition border border-amber-500 text-white">
+                ⚡ Turbo (เร็วที่สุด - กราฟสด)
+              </button>
+              <button id="btn-speed-visual" class="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition border border-slate-700">
+                👁️ ดูสด Live (ขยับหมากทีละตา)
+              </button>
+            </div>
+          </div>
+
+          <!-- Checkbox: Resume from existing best model -->
+          <div class="flex items-center space-x-2 text-xs text-slate-300">
+            <input id="chk-resume" type="checkbox" checked class="rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-0 w-4 h-4">
+            <label for="chk-resume" class="cursor-pointer">เรียนรู้ต่อยอดจากสมองเดิม (checkpoints/best_model.pt)</label>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="grid grid-cols-2 gap-3 pt-1">
+            <button id="btn-start-training" class="py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 font-bold text-sm text-white transition shadow-lg shadow-emerald-950/50 flex items-center justify-center gap-2">
+              <span>▶️</span> เริ่มต้นการฝึกฝน
+            </button>
+            <button id="btn-stop-training" disabled class="py-3 px-4 rounded-xl bg-slate-800 text-slate-500 font-bold text-sm transition border border-slate-700 flex items-center justify-center gap-2 cursor-not-allowed">
+              <span>⏹️</span> หยุดและเซฟสมอง
+            </button>
+          </div>
+        </div>
+
+        <!-- Real-Time Training Terminal Logs -->
+        <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-md shadow-xl">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <span>📜</span> ข้อความสถานะสด (Live Training Stream)
+            </h2>
+            <button id="btn-clear-logs" class="text-[11px] text-slate-500 hover:text-slate-300 transition">
+              ล้างข้อความ
+            </button>
+          </div>
+          <div id="train-logs" class="h-36 overflow-y-auto space-y-1 text-xs font-mono text-slate-400 bg-slate-950/70 p-3 rounded-xl border border-slate-800/80">
+            <p class="text-slate-500 italic">[ระบบ]: เชื่อมต่อ WebSocket สำเร็จ พร้อมเริ่มการฝึกฝน...</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <footer class="border-t border-slate-800 py-4 text-center text-xs text-slate-500">
+    Thai-Checkers-AlphaZero • Deep Reinforcement Learning with Tabula Rasa Self-Play • Apple Silicon MPS Accelerated
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
