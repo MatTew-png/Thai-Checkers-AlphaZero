@@ -360,7 +360,7 @@ def start_training(req: TrainStartRequest):
                 "data": data,
             })
 
-        def on_episode_end_cb(iter_num, ep_num, total_eps, buf_size, winner=0, stats=None):
+        def on_episode_end_cb(iter_num, ep_num, total_eps, buf_size, winner=0, stats=None, reason=""):
             training_state.current_iter = iter_num
             training_state.current_episode = ep_num
             training_state.buffer_size = buf_size
@@ -376,6 +376,7 @@ def start_training(req: TrainStartRequest):
                 "buffer_size": buf_size,
                 "winner": winner,
                 "winner_label": winner_label,
+                "reason": reason,
                 "stats": training_state.stats,
             })
 

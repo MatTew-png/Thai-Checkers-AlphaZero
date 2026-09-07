@@ -30,7 +30,7 @@ class SelfPlayWorker:
         self,
         temp_threshold: int = 14,
         step_callback: Optional[Callable[[Board, int, int], None]] = None,
-    ) -> Tuple[List[Tuple[np.ndarray, np.ndarray, float]], int]:
+    ) -> Tuple[List[Tuple[np.ndarray, np.ndarray, float]], int, str]:
         """Plays a single game of self-play and returns training examples and final winner.
         
         Args:
@@ -86,6 +86,7 @@ class SelfPlayWorker:
             done, winner = board.check_game_over()
 
         final_winner = 0 if winner is None else winner
+        reason = board.get_game_over_reason()
 
         # Build training tuples with final outcome z
         training_samples: List[Tuple[np.ndarray, np.ndarray, float]] = []
@@ -98,4 +99,4 @@ class SelfPlayWorker:
                 z = -1.0
             training_samples.append((state_tensor, target_pi, z))
 
-        return training_samples, final_winner
+        return training_samples, final_winner, reason

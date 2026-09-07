@@ -688,7 +688,13 @@ function handleTrainMessage(msg) {
       updateSelfPlayStats(msg.stats);
     }
     const outcomeStr = msg.winner_label ? `ผลลัพธ์: ${msg.winner_label}` : '';
-    appendTrainLog(`🎮 จบเกมจำลองที่ ${msg.episode}/${msg.total_episodes} ${outcomeStr} (สะสมในสมองแล้ว: ${msg.buffer_size} ตำแหน่ง)`);
+    const reasonStr = msg.reason ? `(${msg.reason})` : '';
+    const badgeEl = document.getElementById('train-last-move');
+    if (badgeEl) {
+      badgeEl.innerText = `🏁 ${msg.winner_label || 'จบเกม'} ${reasonStr}`;
+      badgeEl.className = 'text-xs font-mono font-semibold px-2.5 py-1 rounded bg-amber-950 text-amber-300 border border-amber-700 animate-pulse';
+    }
+    appendTrainLog(`🎮 จบเกมจำลองที่ ${msg.episode}/${msg.total_episodes}: ${outcomeStr} ${reasonStr} (สะสมในสมองแล้ว: ${msg.buffer_size} ตำแหน่ง)`);
   } else if (msg.type === 'epoch_end') {
     appendTrainLog(`🧠 Epoch ${msg.epoch}: Total Loss = ${msg.loss.toFixed(4)} (Policy = ${msg.policy_loss.toFixed(4)}, Value = ${msg.value_loss.toFixed(4)})`);
   } else if (msg.type === 'iter_end') {

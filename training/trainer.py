@@ -194,7 +194,7 @@ class Trainer:
                     if self.visual_delay > 0:
                         time.sleep(self.visual_delay)
 
-                samples, winner = worker.play_game(step_callback=_step_cb)
+                samples, winner, reason = worker.play_game(step_callback=_step_cb)
                 self.replay_buffer.extend(samples)
                 new_samples += len(samples)
 
@@ -210,7 +210,7 @@ class Trainer:
                     winner_str = "🤝 เสมอ"
 
                 print(
-                    f"  Episode {ep}/{self.config.episodes_per_iter}: {winner_str} | +{len(samples)} samples "
+                    f"  Episode {ep}/{self.config.episodes_per_iter}: {winner_str} ({reason}) | +{len(samples)} samples "
                     f"(Total buffer: {len(self.replay_buffer)}) "
                     f"[⚪ {self.self_play_stats['white_wins']} | ⚫ {self.self_play_stats['black_wins']} | 🤝 {self.self_play_stats['draws']}]"
                 )
@@ -223,7 +223,11 @@ class Trainer:
                         len(self.replay_buffer),
                         winner,
                         dict(self.self_play_stats),
+                        reason,
                     )
+
+                if self.visual_delay > 0:
+                    time.sleep(1.5)  # Pause to let user observe final board and ending reason
 
             if self.stop_requested:
                 break

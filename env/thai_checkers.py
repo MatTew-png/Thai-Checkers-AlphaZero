@@ -470,6 +470,38 @@ class Board:
 
         return False, None
 
+    def get_game_over_reason(self) -> str:
+        """Returns a clear, human-readable Thai explanation of why the game ended."""
+        p1_pieces = sum(1 for s in self.squares if Piece.is_p1(s))
+        p2_pieces = sum(1 for s in self.squares if Piece.is_p2(s))
+
+        if p1_pieces == 0:
+            return "กินหมากขาวหมดกระดาน"
+        if p2_pieces == 0:
+            return "กินหมากดำหมดกระดาน"
+
+        legal_moves = self.get_legal_moves()
+        if len(legal_moves) == 0:
+            trapped_side = "⚪ ขาว" if self.current_player == Player.P1 else "⚫ ดำ"
+            return f"{trapped_side}ไม่มีตาเดิน (โดนขังหมากจนมุม)"
+
+        curr_hash = self.history[-1] if self.history else self.position_hash()
+        if self.history.count(curr_hash) >= 3:
+            return "เสมอกัน (หมากซ้ำตำแหน่งเดิม 3 ครั้ง)"
+
+        if self.halfmove_clock >= 100:
+            return "เสมอกัน (กฎ 50 ตา ไม่มีการกิน)"
+        if self.ply_count >= 200:
+            return "เสมอกัน (ครบเพดาน 200 ตา)"
+
+        if p1_pieces == 1 and p2_pieces == 1:
+            p1_kings = sum(1 for s in self.squares if s == Piece.P1_KING)
+            p2_kings = sum(1 for s in self.squares if s == Piece.P2_KING)
+            if p1_kings == 1 and p2_kings == 1 and self.halfmove_clock >= 32:
+                return "เสมอกัน (ฮอสเดี่ยวดวลฮอสเดี่ยวครบก้าว)"
+
+        return "จบเกม"
+
     def get_legal_action_mask(self) -> np.ndarray:
         """Returns a boolean array of size 1024 indicating legal action indices."""
         mask = np.zeros(ACTION_SPACE_SIZE, dtype=bool)

@@ -135,9 +135,10 @@ def test_trainer_live_callbacks_and_stop(tmp_path):
     def _cb(b, a, p):
         on_step({"ply": b.ply_count, "player": p})
 
-    samples, winner = worker.play_game(step_callback=_cb)
+    samples, winner, reason = worker.play_game(step_callback=_cb)
     assert len(samples) > 0
     assert winner in (1, -1, 0)
+    assert isinstance(reason, str) and len(reason) > 0
     assert len(steps_recorded) > 0
     assert steps_recorded[0]["ply"] >= 1
 
