@@ -296,9 +296,8 @@ class Board:
         elif Piece.is_king(piece):
             # Flying King captures along any of the 4 diagonals:
             # Moves along ray until it finds an enemy piece.
-            # Beyond that enemy piece, any empty square is a valid landing square!
+            # In Thai Checkers: King MUST land on the immediate square right behind the captured enemy!
             for direction, ray in SQ_RAYS[sq].items():
-                dr, dc = direction
                 enemy_sq: Optional[int] = None
                 enemy_idx: int = -1
 
@@ -316,8 +315,9 @@ class Board:
                         break
 
                 if enemy_sq is not None:
-                    # Scan squares beyond the enemy piece along the ray
-                    for landing_sq in ray[enemy_idx + 1 :]:
+                    # In Thai Checkers, King must land immediately behind the captured piece (first square)
+                    if enemy_idx + 1 < len(ray):
+                        landing_sq = ray[enemy_idx + 1]
                         if self.squares[landing_sq] == Piece.EMPTY:
                             captures.append(
                                 Move(
@@ -328,9 +328,6 @@ class Board:
                                     promoted=False,
                                 )
                             )
-                        else:
-                            # Blocked by another piece beyond the enemy
-                            break
 
         return captures
 

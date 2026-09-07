@@ -191,8 +191,8 @@ def test_flying_king_movement():
         assert coord in destinations
 
 
-def test_flying_king_capture_any_empty_landing():
-    """Thai Checkers rule: King can land on ANY empty square beyond captured enemy along diagonal ray."""
+def test_flying_king_capture_immediate_landing_only():
+    """Thai Checkers rule: King MUST land on the immediate square right behind the captured piece."""
     board = Board()
     board.squares = [Piece.EMPTY] * NUM_SQUARES
 
@@ -207,13 +207,16 @@ def test_flying_king_capture_any_empty_landing():
     board.current_player = Player.P1
     legal_moves = board.get_legal_moves()
 
-    # King can jump enemy at (3, 3) and land on (4, 4), (5, 5), (6, 6), or (7, 7)
+    # In Thai Checkers, King must land on (4, 4) ONLY (immediate square behind enemy)
     destinations = [SQ_TO_COORD[m.to_sq] for m in legal_moves]
-    assert len(destinations) == 4
-    assert (4, 4) in destinations
-    assert (5, 5) in destinations
-    assert (6, 6) in destinations
-    assert (7, 7) in destinations
+    assert destinations == [(4, 4)]
+
+    # If the immediate square behind enemy is occupied, King cannot capture
+    board.squares[COORD_TO_SQ[(4, 4)]] = Piece.P2_PAWN
+    blocked_moves = board.get_legal_moves()
+    # (3, 3) cannot be captured because landing square (4, 4) is blocked
+    capture_destinations = [SQ_TO_COORD[m.to_sq] for m in blocked_moves if m.is_capture]
+    assert len(capture_destinations) == 0
 
 
 def test_canonical_form_rotation():
