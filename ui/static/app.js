@@ -702,6 +702,16 @@ function handleTrainMessage(msg) {
     const wr = msg.info.win_rate * 100;
     document.getElementById('train-winrate-display').innerText = `${wr.toFixed(1)}%`;
     appendTrainLog(`⚔️ สิ้นสุดรอบที่ ${msg.iteration}! ผลดวล Arena: ชนะ ${wr.toFixed(1)}% ${msg.info.accepted ? '🏆 (ผ่านเกณฑ์ - บันทึกเป็นโมเดลตัวเก่งที่สุด)' : '🛡️ (ใช้โมเดลเดิม)'}`);
+  } else if (msg.type === 'warmup_progress') {
+    document.getElementById('train-buffer-display').innerText = `${msg.buffer_size} Samples`;
+  } else if (msg.type === 'warmup_complete') {
+    document.getElementById('train-buffer-display').innerText = `${msg.buffer_size} Samples`;
+    const btnWarmup = document.getElementById('btn-minimax-warmup');
+    if (btnWarmup) {
+      btnWarmup.disabled = false;
+      btnWarmup.className = 'w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-amber-600/90 hover:bg-amber-500 font-semibold text-xs text-white transition flex items-center justify-center gap-1.5 shadow whitespace-nowrap cursor-pointer';
+      btnWarmup.innerHTML = '<span>⚡</span> บูสต์ข้อมูล (+10 เกม)';
+    }
   } else if (msg.type === 'training_complete') {
     updateTrainUIState(false);
     appendTrainLog('🎉 การฝึกฝนเสร็จสิ้นเรียบร้อยแล้ว! สมองเวอร์ชันใหม่พร้อมใช้งานในโหมดเล่นเกม');
@@ -714,6 +724,7 @@ function handleTrainMessage(msg) {
 function updateTrainUIState(isTraining) {
   const btnStart = document.getElementById('btn-start-training');
   const btnStop = document.getElementById('btn-stop-training');
+  const btnWarmup = document.getElementById('btn-minimax-warmup');
   const statusText = document.getElementById('train-status-text');
 
   if (isTraining) {
@@ -721,6 +732,10 @@ function updateTrainUIState(isTraining) {
     btnStart.className = 'py-3 px-4 rounded-xl bg-slate-800 text-slate-500 font-bold text-sm transition border border-slate-700 flex items-center justify-center gap-2 cursor-not-allowed';
     btnStop.disabled = false;
     btnStop.className = 'py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 font-bold text-sm text-white transition shadow-lg shadow-red-950/50 flex items-center justify-center gap-2 cursor-pointer';
+    if (btnWarmup) {
+      btnWarmup.disabled = true;
+      btnWarmup.className = 'w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-slate-800 text-slate-500 font-semibold text-xs transition border border-slate-700 flex items-center justify-center gap-1.5 shadow whitespace-nowrap cursor-not-allowed';
+    }
     statusText.innerText = '⚡ กำลังฝึกฝน AI (Training...)';
     statusText.className = 'text-sm font-bold text-emerald-400 mt-1 animate-pulse';
   } else {
@@ -728,6 +743,10 @@ function updateTrainUIState(isTraining) {
     btnStart.className = 'py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 font-bold text-sm text-white transition shadow-lg shadow-emerald-950/50 flex items-center justify-center gap-2 cursor-pointer';
     btnStop.disabled = true;
     btnStop.className = 'py-3 px-4 rounded-xl bg-slate-800 text-slate-500 font-bold text-sm transition border border-slate-700 flex items-center justify-center gap-2 cursor-not-allowed';
+    if (btnWarmup) {
+      btnWarmup.disabled = false;
+      btnWarmup.className = 'w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-amber-600/90 hover:bg-amber-500 font-semibold text-xs text-white transition flex items-center justify-center gap-1.5 shadow whitespace-nowrap cursor-pointer';
+    }
     statusText.innerText = 'พร้อมเริ่มการฝึกฝน (Idle)';
     statusText.className = 'text-sm font-bold text-amber-400 mt-1';
   }
@@ -773,6 +792,7 @@ document.getElementById('btn-start-training').addEventListener('click', async ()
   const eps = parseInt(document.getElementById('input-train-episodes').value) || 5;
   const sims = parseInt(document.getElementById('input-train-sims').value) || 50;
   const resume = document.getElementById('chk-resume').checked;
+  const usePcr = document.getElementById('chk-pcr') ? document.getElementById('chk-pcr').checked : true;
 
   try {
     const res = await fetch('/api/train/start', {
@@ -784,6 +804,8 @@ document.getElementById('btn-start-training').addEventListener('click', async ()
         mcts_sims: sims,
         visual_delay: currentVisualDelay,
         resume: resume,
+        use_pcr: usePcr,
+        num_workers: 4,
       })
     });
     if (res.ok) {
@@ -797,6 +819,36 @@ document.getElementById('btn-start-training').addEventListener('click', async ()
     alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
   }
 });
+
+// Minimax Expert Knowledge Warmup Booster
+const btnWarmup = document.getElementById('btn-minimax-warmup');
+if (btnWarmup) {
+  btnWarmup.addEventListener('click', async () => {
+    btnWarmup.disabled = true;
+    btnWarmup.className = 'w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-slate-800 text-amber-300 font-semibold text-xs transition border border-amber-600 flex items-center justify-center gap-1.5 shadow whitespace-nowrap cursor-wait';
+    btnWarmup.innerHTML = '<span>⏳</span> กำลังจำลองเกมเซียน...';
+    try {
+      const res = await fetch('/api/train/warmup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ num_games: 10, depth: 3 }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(`ไม่สามารถบูสต์ข้อมูลได้: ${err.detail || 'เกิดข้อผิดพลาด'}`);
+        btnWarmup.disabled = false;
+        btnWarmup.className = 'w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-amber-600/90 hover:bg-amber-500 font-semibold text-xs text-white transition flex items-center justify-center gap-1.5 shadow whitespace-nowrap cursor-pointer';
+        btnWarmup.innerHTML = '<span>⚡</span> บูสต์ข้อมูล (+10 เกม)';
+      }
+    } catch (e) {
+      console.error(e);
+      alert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+      btnWarmup.disabled = false;
+      btnWarmup.className = 'w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-amber-600/90 hover:bg-amber-500 font-semibold text-xs text-white transition flex items-center justify-center gap-1.5 shadow whitespace-nowrap cursor-pointer';
+      btnWarmup.innerHTML = '<span>⚡</span> บูสต์ข้อมูล (+10 เกม)';
+    }
+  });
+}
 
 document.getElementById('btn-stop-training').addEventListener('click', async () => {
   try {

@@ -21,7 +21,8 @@ from env.thai_checkers import (
 from models.net import ThaiCheckersNet, get_device
 from mcts.mcts import MCTS, MCTSConfig
 from baseline.minimax import MinimaxAgent
-from training.trainer import Trainer, TrainerConfig
+from training.trainer import Trainer, TrainerConfig, ReplayBuffer
+from training.minimax_warmup import generate_minimax_warmup
 
 app = FastAPI(title="Thai Checkers AlphaZero API")
 
@@ -83,6 +84,17 @@ class TrainStartRequest(BaseModel):
     arena_games: int = 4
     visual_delay: float = 0.05
     resume: bool = True
+    use_pcr: bool = True
+    num_workers: int = 4
+
+
+class WarmupRequest(BaseModel):
+    num_games: int = 10
+    depth: int = 3
+
+
+global_replay_buffer = ReplayBuffer(capacity=50000)
+
 
 class TrainingState:
     def __init__(self):
@@ -349,7 +361,15 @@ def start_training(req: TrainStartRequest):
             mcts_sims=req.mcts_sims,
             arena_games=req.arena_games,
             checkpoint_dir="checkpoints",
+            use_pcr=req.use_pcr,
+            num_workers=req.num_workers,
         )
+
+        if len(global_replay_buffer) > 0:
+            ws_manager.threadsafe_broadcast({
+                "type": "log",
+                "message": f"💾 เชื่อมต่อ Replay Buffer เดิมที่สะสมไว้ {len(global_replay_buffer)} ตำแหน่ง"
+            })
 
         def on_step_cb(data: dict):
             training_state.current_iter = data["iteration"]
@@ -420,6 +440,7 @@ def start_training(req: TrainStartRequest):
             on_epoch_end=on_epoch_end_cb,
             on_iter_end=on_iter_end_cb,
             visual_delay=req.visual_delay,
+            replay_buffer=global_replay_buffer,
         )
         training_state.trainer = trainer
 
@@ -465,6 +486,79 @@ def stop_training():
         "message": "🛑 ได้รับคำสั่งหยุดการเทรน... กำลังบันทึก Checkpoint อย่างปลอดภัย"
     })
     return {"status": "stopping"}
+
+
+@app.post("/api/train/warmup")
+def trigger_minimax_warmup(req: WarmupRequest = WarmupRequest()):
+    if training_state.is_training:
+        raise HTTPException(
+            status_code=400,
+            detail="AI กำลังฝึกฝนอยู่ กรุณากดหยุดการเทรนก่อนเริ่มบูสต์ข้อมูล"
+        )
+
+    def run_warmup():
+        ws_manager.threadsafe_broadcast({
+            "type": "log",
+            "message": f"⚡ เริ่มต้นสร้างชุดข้อมูลหมากเด็ดจากเซียน Minimax ({req.num_games} เกม, Depth {req.depth})..."
+        })
+
+        def _progress_cb(g_idx: int, total: int, n_samples: int, reason: str):
+            cur_buf = len(global_replay_buffer) + n_samples
+            training_state.buffer_size = cur_buf
+            ws_manager.threadsafe_broadcast({
+                "type": "warmup_progress",
+                "game": g_idx,
+                "total_games": total,
+                "accumulated_samples": n_samples,
+                "buffer_size": cur_buf,
+                "reason": reason,
+            })
+            ws_manager.threadsafe_broadcast({
+                "type": "log",
+                "message": f"⚡ [เซียน Minimax {g_idx}/{total}] สร้างเกมสำเร็จ (+{n_samples} ตำแหน่งสะสม | {reason})"
+            })
+
+        try:
+            samples = generate_minimax_warmup(
+                num_games=req.num_games,
+                depth=req.depth,
+                progress_callback=_progress_cb,
+            )
+            global_replay_buffer.extend(samples)
+            training_state.buffer_size = len(global_replay_buffer)
+            ws_manager.threadsafe_broadcast({
+                "type": "warmup_complete",
+                "added_samples": len(samples),
+                "buffer_size": len(global_replay_buffer),
+            })
+            ws_manager.threadsafe_broadcast({
+                "type": "log",
+                "message": f"🎉 บูสต์ข้อมูลสำเร็จ! เพิ่มหมากเด็ด {len(samples)} ตำแหน่งเข้า Replay Buffer แล้ว (รวม: {len(global_replay_buffer)} ตำแหน่ง)"
+            })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            ws_manager.threadsafe_broadcast({
+                "type": "log",
+                "message": f"❌ เกิดข้อผิดพลาดในการบูสต์ข้อมูล: {e}"
+            })
+
+    t = threading.Thread(target=run_warmup, daemon=True)
+    t.start()
+    return {"status": "started", "num_games": req.num_games}
+
+
+@app.get("/api/train/status")
+def get_training_status():
+    return {
+        "is_training": training_state.is_training,
+        "current_iter": training_state.current_iter,
+        "total_iters": training_state.total_iters,
+        "current_episode": training_state.current_episode,
+        "total_episodes": training_state.total_episodes,
+        "buffer_size": len(global_replay_buffer),
+        "stats": training_state.stats,
+    }
 
 
 if __name__ == "__main__":

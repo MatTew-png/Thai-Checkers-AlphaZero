@@ -52,6 +52,8 @@ class ResidualBlock(nn.Module):
 class ThaiCheckersNet(nn.Module):
     def __init__(self, num_res_blocks: int = 5, num_channels: int = 128, action_size: int = 1024):
         super().__init__()
+        self.num_res_blocks = num_res_blocks
+        self.num_channels = num_channels
         self.action_size = action_size
 
         # Input convolutional block

@@ -501,6 +501,23 @@
             <label for="chk-resume" class="cursor-pointer">เรียนรู้ต่อยอดจากสมองเดิม (checkpoints/best_model.pt)</label>
           </div>
 
+          <!-- Checkbox: KataGo Playout Cap Randomization (PCR) -->
+          <div class="flex items-center space-x-2 text-xs text-slate-300">
+            <input id="chk-pcr" type="checkbox" checked class="rounded bg-slate-800 border-slate-700 text-amber-500 focus:ring-0 w-4 h-4">
+            <label for="chk-pcr" class="cursor-pointer">⚡ KataGo PCR (เร่งความเร็ว 2.5 เท่า สลับคิดเร็ว 75% / คิดลึก 25%)</label>
+          </div>
+
+          <!-- Minimax Expert Knowledge Warmup Booster -->
+          <div class="p-3 bg-slate-950/60 rounded-xl border border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div class="text-xs">
+              <span class="font-bold text-amber-400 flex items-center gap-1">⚡ บูสต์หมากเก่งด้วยเซียน Minimax</span>
+              <p class="text-[11px] text-slate-400">สร้าง 10 เกมตัวอย่างระดับเซียน (เปิดหมาก/ดักกินหลายต่อ) ใส่สมองทันที</p>
+            </div>
+            <button id="btn-minimax-warmup" class="w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-amber-600/90 hover:bg-amber-500 font-semibold text-xs text-white transition flex items-center justify-center gap-1.5 shadow whitespace-nowrap cursor-pointer">
+              <span>⚡</span> บูสต์ข้อมูล (+10 เกม)
+            </button>
+          </div>
+
           <!-- Action Buttons -->
           <div class="grid grid-cols-2 gap-3 pt-1">
             <button id="btn-start-training" class="py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 font-bold text-sm text-white transition shadow-lg shadow-emerald-950/50 flex items-center justify-center gap-2">

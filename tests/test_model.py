@@ -8,6 +8,7 @@ from env.thai_checkers import Board, ACTION_SPACE_SIZE
 from models.net import ThaiCheckersNet, get_device
 from mcts.mcts import MCTS, MCTSConfig
 from training.trainer import ReplayBuffer, Trainer, TrainerConfig
+from training.self_play import SelfPlayWorker
 from baseline.minimax import MinimaxAgent
 
 
@@ -145,4 +146,63 @@ def test_trainer_live_callbacks_and_stop(tmp_path):
     # Test stop_requested flag
     trainer.stop_requested = True
     assert trainer.stop_requested is True
+
+
+def test_pcr_self_play():
+    """Verify KataGo Playout Cap Randomization (PCR) self-play worker."""
+    model = ThaiCheckersNet(num_res_blocks=2, num_channels=32)
+    worker = SelfPlayWorker(
+        model,
+        mcts_simulations=30,
+        use_pcr=True,
+        pcr_fast_ratio=0.75,
+        pcr_fast_sims=8,
+    )
+    samples, winner, reason = worker.play_game()
+    assert len(samples) > 0
+    assert winner in (1, -1, 0)
+    assert isinstance(reason, str) and len(reason) > 0
+    state, pi, z = samples[0]
+    assert state.shape == (6, 8, 8)
+    assert pi.shape == (1024,)
+    assert z in (-1.0, 0.0, 1.0)
+
+
+def test_minimax_warmup_generation():
+    """Verify expert warmup data generation from Minimax self-play."""
+    from training.minimax_warmup import generate_minimax_warmup
+
+    warmup_progress = []
+
+    def _cb(g, total, n_samples, reason):
+        warmup_progress.append((g, n_samples, reason))
+
+    samples = generate_minimax_warmup(num_games=1, depth=2, progress_callback=_cb)
+    assert len(samples) > 0
+    assert len(warmup_progress) == 1
+    state, pi, z = samples[0]
+    assert state.shape == (6, 8, 8)
+    assert pi.shape == (1024,)
+    assert np.isclose(np.sum(pi), 1.0, atol=1e-4)
+    assert z in (-1.0, 0.0, 1.0)
+
+
+def test_parallel_trainer_turbo(tmp_path):
+    """Verify Turbo mode with ThreadPoolExecutor multi-worker self-play."""
+    model = ThaiCheckersNet(num_res_blocks=2, num_channels=32)
+    cfg = TrainerConfig(
+        num_iters=1,
+        episodes_per_iter=2,
+        mcts_sims=5,
+        num_workers=2,
+        use_pcr=True,
+        checkpoint_dir=str(tmp_path),
+        batch_size=8,
+        epochs_per_iter=1,
+    )
+    trainer = Trainer(model=model, config=cfg, visual_delay=0.0)
+    history = trainer.run_training_loop()
+    assert len(trainer.replay_buffer) > 0
+    assert trainer.self_play_stats["total_games"] == 2
+
 

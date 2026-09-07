@@ -12,7 +12,8 @@ import os
 import random
 from collections import deque
 from dataclasses import dataclass
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any, Callable
+import concurrent.futures
 import numpy as np
 import torch
 import torch.nn as nn
@@ -39,6 +40,8 @@ class TrainerConfig:
     arena_threshold: float = 0.55  # Challenger must achieve >= 55% win rate
     buffer_capacity: int = 30000
     checkpoint_dir: str = "checkpoints"
+    use_pcr: bool = True
+    num_workers: int = 4
 
 
 class ReplayBuffer:
@@ -72,15 +75,27 @@ class Trainer:
         config: Optional[TrainerConfig] = None,
         device: Optional[torch.device] = None,
         on_step: Optional[Callable[[Dict[str, Any]], None]] = None,
-        on_episode_end: Optional[Callable[[int, int, int, int], None]] = None,
+        on_episode_end: Optional[Callable[[int, int, int, int, Optional[Dict[str, int]], str], None]] = None,
         on_epoch_end: Optional[Callable[[int, int, float, float, float], None]] = None,
         on_iter_end: Optional[Callable[[int, Dict[str, Any]], None]] = None,
         visual_delay: float = 0.0,
+        replay_buffer: Optional[ReplayBuffer] = None,
     ):
         self.config = config or TrainerConfig()
         self.device = device or get_device()
         self.model = model or ThaiCheckersNet()
         self.model.to(self.device)
+
+        # CPU model replica for high-throughput multi-threaded MCTS search without Metal lock contention
+        num_blocks = getattr(self.model, "num_res_blocks", len(self.model.res_blocks))
+        num_ch = getattr(self.model, "num_channels", self.model.in_conv.out_channels)
+        action_sz = getattr(self.model, "action_size", self.model.policy_fc.out_features)
+        self.cpu_model = ThaiCheckersNet(
+            num_res_blocks=num_blocks,
+            num_channels=num_ch,
+            action_size=action_sz,
+        ).to("cpu")
+        self.sync_cpu_model()
 
         self.optimizer = optim.AdamW(
             self.model.parameters(),
@@ -88,7 +103,7 @@ class Trainer:
             weight_decay=self.config.weight_decay,
         )
 
-        self.replay_buffer = ReplayBuffer(capacity=self.config.buffer_capacity)
+        self.replay_buffer = replay_buffer or ReplayBuffer(capacity=self.config.buffer_capacity)
         os.makedirs(self.config.checkpoint_dir, exist_ok=True)
 
         self.self_play_stats: Dict[str, int] = {
@@ -104,6 +119,12 @@ class Trainer:
         self.on_epoch_end = on_epoch_end
         self.on_iter_end = on_iter_end
         self.visual_delay = visual_delay
+
+    def sync_cpu_model(self) -> None:
+        """Copies weights from training device (MPS/CUDA) to CPU inference model."""
+        state_dict = {k: v.cpu() for k, v in self.model.state_dict().items()}
+        self.cpu_model.load_state_dict(state_dict)
+        self.cpu_model.eval()
 
     def train_epoch(self) -> Tuple[float, float, float]:
         """Runs one training epoch over random batches from replay buffer."""
@@ -162,80 +183,141 @@ class Trainer:
             print(f"==========================================")
 
             # 1. Self-Play: Collect new episodes
-            print(f"🎮 Generating {self.config.episodes_per_iter} self-play episodes...")
-            worker = SelfPlayWorker(self.model, mcts_simulations=self.config.mcts_sims)
+            self.sync_cpu_model()
             new_samples = 0
 
-            for ep in range(1, self.config.episodes_per_iter + 1):
-                if self.stop_requested:
-                    break
+            if self.visual_delay == 0 and self.config.num_workers > 1:
+                # Turbo Mode: Multi-worker parallel self-play across CPU cores
+                max_w = min(self.config.num_workers, self.config.episodes_per_iter)
+                print(f"🎮 Generating {self.config.episodes_per_iter} episodes ({max_w} parallel workers on M4 CPU)...")
 
-                def _step_cb(b: Board, a: int, acting_p: int):
-                    if self.on_step:
-                        f_sq, t_sq = Move.from_action_id(a)
-                        self.on_step({
-                            "iteration": iteration,
-                            "total_iters": self.config.num_iters,
-                            "episode": ep,
-                            "total_episodes": self.config.episodes_per_iter,
-                            "ply_count": b.ply_count,
-                            "acting_player": acting_p,
-                            "current_player": b.current_player,
-                            "from_sq": f_sq,
-                            "to_sq": t_sq,
-                            "from_coord": SQ_TO_COORD[f_sq],
-                            "to_coord": SQ_TO_COORD[t_sq],
-                            "from_algebraic": sq_to_algebraic(f_sq),
-                            "to_algebraic": sq_to_algebraic(t_sq),
-                            "notation": f"{sq_to_algebraic(f_sq)}-{sq_to_algebraic(t_sq)}",
-                            "squares": list(b.squares),
-                            "buffer_size": len(self.replay_buffer),
-                        })
-                    if self.visual_delay > 0:
-                        time.sleep(self.visual_delay)
+                def _play_single_ep(ep_idx: int):
+                    worker = SelfPlayWorker(
+                        self.cpu_model,
+                        mcts_simulations=self.config.mcts_sims,
+                        use_pcr=self.config.use_pcr,
+                    )
+                    s, w, r = worker.play_game()
+                    return ep_idx, s, w, r
 
-                samples, winner, reason = worker.play_game(step_callback=_step_cb)
-                self.replay_buffer.extend(samples)
-                new_samples += len(samples)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as executor:
+                    futures = [
+                        executor.submit(_play_single_ep, ep)
+                        for ep in range(1, self.config.episodes_per_iter + 1)
+                    ]
+                    for fut in concurrent.futures.as_completed(futures):
+                        if self.stop_requested:
+                            break
+                        ep, samples, winner, reason = fut.result()
+                        self.replay_buffer.extend(samples)
+                        new_samples += len(samples)
 
-                self.self_play_stats["total_games"] += 1
-                if winner == 1:
-                    self.self_play_stats["white_wins"] += 1
-                    winner_str = "⚪ ขาวชนะ"
-                elif winner == -1:
-                    self.self_play_stats["black_wins"] += 1
-                    winner_str = "⚫ ดำชนะ"
-                else:
-                    self.self_play_stats["draws"] += 1
-                    winner_str = "🤝 เสมอ"
+                        self.self_play_stats["total_games"] += 1
+                        if winner == 1:
+                            self.self_play_stats["white_wins"] += 1
+                            winner_str = "⚪ ขาวชนะ"
+                        elif winner == -1:
+                            self.self_play_stats["black_wins"] += 1
+                            winner_str = "⚫ ดำชนะ"
+                        else:
+                            self.self_play_stats["draws"] += 1
+                            winner_str = "🤝 เสมอ"
 
-                print(
-                    f"  Episode {ep}/{self.config.episodes_per_iter}: {winner_str} ({reason}) | +{len(samples)} samples "
-                    f"(Total buffer: {len(self.replay_buffer)}) "
-                    f"[⚪ {self.self_play_stats['white_wins']} | ⚫ {self.self_play_stats['black_wins']} | 🤝 {self.self_play_stats['draws']}]"
+                        print(
+                            f"  Episode {ep}/{self.config.episodes_per_iter} [Parallel]: {winner_str} ({reason}) | +{len(samples)} samples "
+                            f"(Total buffer: {len(self.replay_buffer)}) "
+                            f"[⚪ {self.self_play_stats['white_wins']} | ⚫ {self.self_play_stats['black_wins']} | 🤝 {self.self_play_stats['draws']}]"
+                        )
+
+                        if self.on_episode_end:
+                            self.on_episode_end(
+                                iteration,
+                                ep,
+                                self.config.episodes_per_iter,
+                                len(self.replay_buffer),
+                                winner,
+                                dict(self.self_play_stats),
+                                reason,
+                            )
+            else:
+                # Live Watch Mode: Sequential self-play with live board animation
+                print(f"🎮 Generating {self.config.episodes_per_iter} self-play episodes (Live Watch Mode)...")
+                worker = SelfPlayWorker(
+                    self.cpu_model,
+                    mcts_simulations=self.config.mcts_sims,
+                    use_pcr=self.config.use_pcr,
                 )
 
-                if self.on_episode_end:
-                    self.on_episode_end(
-                        iteration,
-                        ep,
-                        self.config.episodes_per_iter,
-                        len(self.replay_buffer),
-                        winner,
-                        dict(self.self_play_stats),
-                        reason,
+                for ep in range(1, self.config.episodes_per_iter + 1):
+                    if self.stop_requested:
+                        break
+
+                    def _step_cb(b: Board, a: int, acting_p: int):
+                        if self.on_step:
+                            f_sq, t_sq = Move.from_action_id(a)
+                            self.on_step({
+                                "iteration": iteration,
+                                "total_iters": self.config.num_iters,
+                                "episode": ep,
+                                "total_episodes": self.config.episodes_per_iter,
+                                "ply_count": b.ply_count,
+                                "acting_player": acting_p,
+                                "current_player": b.current_player,
+                                "from_sq": f_sq,
+                                "to_sq": t_sq,
+                                "from_coord": SQ_TO_COORD[f_sq],
+                                "to_coord": SQ_TO_COORD[t_sq],
+                                "from_algebraic": sq_to_algebraic(f_sq),
+                                "to_algebraic": sq_to_algebraic(t_sq),
+                                "notation": f"{sq_to_algebraic(f_sq)}-{sq_to_algebraic(t_sq)}",
+                                "squares": list(b.squares),
+                                "buffer_size": len(self.replay_buffer),
+                            })
+                        if self.visual_delay > 0:
+                            time.sleep(self.visual_delay)
+
+                    samples, winner, reason = worker.play_game(step_callback=_step_cb)
+                    self.replay_buffer.extend(samples)
+                    new_samples += len(samples)
+
+                    self.self_play_stats["total_games"] += 1
+                    if winner == 1:
+                        self.self_play_stats["white_wins"] += 1
+                        winner_str = "⚪ ขาวชนะ"
+                    elif winner == -1:
+                        self.self_play_stats["black_wins"] += 1
+                        winner_str = "⚫ ดำชนะ"
+                    else:
+                        self.self_play_stats["draws"] += 1
+                        winner_str = "🤝 เสมอ"
+
+                    print(
+                        f"  Episode {ep}/{self.config.episodes_per_iter}: {winner_str} ({reason}) | +{len(samples)} samples "
+                        f"(Total buffer: {len(self.replay_buffer)}) "
+                        f"[⚪ {self.self_play_stats['white_wins']} | ⚫ {self.self_play_stats['black_wins']} | 🤝 {self.self_play_stats['draws']}]"
                     )
 
-                if self.visual_delay > 0:
-                    time.sleep(1.5)  # Pause to let user observe final board and ending reason
+                    if self.on_episode_end:
+                        self.on_episode_end(
+                            iteration,
+                            ep,
+                            self.config.episodes_per_iter,
+                            len(self.replay_buffer),
+                            winner,
+                            dict(self.self_play_stats),
+                            reason,
+                        )
+
+                    if self.visual_delay > 0:
+                        time.sleep(1.5)  # Pause to let user observe final board and ending reason
 
             if self.stop_requested:
                 break
 
-            # 2. Optimization
+            # 2. Optimization (Batch Training on MPS/GPU)
             last_loss, last_p_loss, last_v_loss = 0.0, 0.0, 0.0
             if len(self.replay_buffer) >= self.config.batch_size:
-                print(f"🧠 Training model for {self.config.epochs_per_iter} epochs...")
+                print(f"🧠 Training model for {self.config.epochs_per_iter} epochs on {self.device}...")
                 for ep in range(1, self.config.epochs_per_iter + 1):
                     loss, p_loss, v_loss = self.train_epoch()
                     last_loss, last_p_loss, last_v_loss = loss, p_loss, v_loss
@@ -246,6 +328,7 @@ class Trainer:
                 history["loss"].append(last_loss)
                 history["policy_loss"].append(last_p_loss)
                 history["value_loss"].append(last_v_loss)
+                self.sync_cpu_model()
 
             # 3. Checkpoint & Arena Tournament
             current_checkpoint = os.path.join(
@@ -253,16 +336,21 @@ class Trainer:
             )
             self.model.save_checkpoint(current_checkpoint)
 
-            # Evaluate challenger vs current best model
+            # Evaluate challenger vs current best model using fast CPU MCTS
             arena_win_rate = 0.0
             accepted = False
             if os.path.exists(best_model_path):
                 print(f"⚔️ Evaluating in Arena vs Best Model ({self.config.arena_games} games)...")
-                best_model = ThaiCheckersNet()
-                best_model.load_checkpoint(best_model_path, device=self.device)
+                best_model = ThaiCheckersNet(
+                    num_res_blocks=getattr(self.model, "num_res_blocks", 5),
+                    num_channels=getattr(self.model, "num_channels", 128),
+                    action_size=getattr(self.model, "action_size", 1024),
+                ).to("cpu")
+                best_model.load_checkpoint(best_model_path, device=torch.device("cpu"))
+                best_model.eval()
 
-                challenger_fn = make_mcts_agent(self.model, sims=self.config.mcts_sims)
-                best_fn = make_mcts_agent(best_model, sims=self.config.mcts_sims)
+                challenger_fn = make_mcts_agent(self.cpu_model, sims=min(40, self.config.mcts_sims))
+                best_fn = make_mcts_agent(best_model, sims=min(40, self.config.mcts_sims))
 
                 arena = Arena(challenger_fn, best_fn)
                 arena_res = arena.play_games(num_games=self.config.arena_games)
