@@ -94,6 +94,12 @@ class TrainingState:
         self.current_episode: int = 0
         self.total_episodes: int = 0
         self.buffer_size: int = 0
+        self.stats: Dict[str, int] = {
+            "white_wins": 0,
+            "black_wins": 0,
+            "draws": 0,
+            "total_games": 0,
+        }
         self.history: Dict[str, List[float]] = {
             "loss": [],
             "policy_loss": [],
@@ -276,6 +282,7 @@ async def websocket_training_endpoint(websocket: WebSocket):
         "current_episode": training_state.current_episode,
         "total_episodes": training_state.total_episodes,
         "buffer_size": training_state.buffer_size,
+        "stats": training_state.stats,
         "history": training_state.history,
         "device": str(device),
     })
@@ -296,6 +303,7 @@ def get_training_status():
         "current_episode": training_state.current_episode,
         "total_episodes": training_state.total_episodes,
         "buffer_size": training_state.buffer_size,
+        "stats": training_state.stats,
         "history": training_state.history,
         "device": str(device),
     }
@@ -352,16 +360,23 @@ def start_training(req: TrainStartRequest):
                 "data": data,
             })
 
-        def on_episode_end_cb(iter_num, ep_num, total_eps, buf_size):
+        def on_episode_end_cb(iter_num, ep_num, total_eps, buf_size, winner=0, stats=None):
             training_state.current_iter = iter_num
             training_state.current_episode = ep_num
             training_state.buffer_size = buf_size
+            if stats:
+                training_state.stats = stats
+
+            winner_label = "⚪ ขาวชนะ" if winner == 1 else ("⚫ ดำชนะ" if winner == -1 else "🤝 เสมอ")
             ws_manager.threadsafe_broadcast({
                 "type": "episode_end",
                 "iteration": iter_num,
                 "episode": ep_num,
                 "total_episodes": total_eps,
                 "buffer_size": buf_size,
+                "winner": winner,
+                "winner_label": winner_label,
+                "stats": training_state.stats,
             })
 
         def on_epoch_end_cb(iter_num, ep_num, loss, p_loss, v_loss):

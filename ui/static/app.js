@@ -627,12 +627,44 @@ function connectTrainingWS() {
   };
 }
 
+function updateSelfPlayStats(stats) {
+  if (!stats) return;
+  const whiteWins = stats.white_wins || 0;
+  const blackWins = stats.black_wins || 0;
+  const draws = stats.draws || 0;
+  const total = stats.total_games || (whiteWins + blackWins + draws);
+
+  const whitePct = total > 0 ? ((whiteWins / total) * 100).toFixed(1) : (0.0).toFixed(1);
+  const blackPct = total > 0 ? ((blackWins / total) * 100).toFixed(1) : (0.0).toFixed(1);
+  const drawPct = total > 0 ? ((draws / total) * 100).toFixed(1) : (0.0).toFixed(1);
+
+  const elWhite = document.getElementById('stat-white-wins');
+  const elBlack = document.getElementById('stat-black-wins');
+  const elDraws = document.getElementById('stat-draws');
+  const elTotal = document.getElementById('stat-total-games');
+  const barWhite = document.getElementById('bar-stat-white');
+  const barBlack = document.getElementById('bar-stat-black');
+  const barDraw = document.getElementById('bar-stat-draw');
+
+  if (elWhite) elWhite.innerText = `${whiteWins} (${whitePct}%)`;
+  if (elBlack) elBlack.innerText = `${blackWins} (${blackPct}%)`;
+  if (elDraws) elDraws.innerText = `${draws} (${drawPct}%)`;
+  if (elTotal) elTotal.innerText = `${total} เกม`;
+
+  if (barWhite) barWhite.style.width = `${whitePct}%`;
+  if (barBlack) barBlack.style.width = `${blackPct}%`;
+  if (barDraw) barDraw.style.width = `${drawPct}%`;
+}
+
 function handleTrainMessage(msg) {
   if (msg.type === 'init') {
     updateTrainUIState(msg.is_training);
     document.getElementById('train-iter-display').innerText = `${msg.current_iter} / ${msg.total_iters}`;
     document.getElementById('train-ep-display').innerText = `${msg.current_episode} / ${msg.total_episodes}`;
     document.getElementById('train-buffer-display').innerText = `${msg.buffer_size} Samples`;
+    if (msg.stats) {
+      updateSelfPlayStats(msg.stats);
+    }
     if (msg.history && msg.history.loss && msg.history.loss.length > 0) {
       updateLossChart(msg.history);
       const lastWr = msg.history.win_rate[msg.history.win_rate.length - 1];
@@ -652,7 +684,11 @@ function handleTrainMessage(msg) {
   } else if (msg.type === 'episode_end') {
     document.getElementById('train-ep-display').innerText = `${msg.episode} / ${msg.total_episodes}`;
     document.getElementById('train-buffer-display').innerText = `${msg.buffer_size} Samples`;
-    appendTrainLog(`🎮 จบเกมจำลองที่ ${msg.episode}/${msg.total_episodes} (สะสมในสมองแล้ว: ${msg.buffer_size} ตำแหน่ง)`);
+    if (msg.stats) {
+      updateSelfPlayStats(msg.stats);
+    }
+    const outcomeStr = msg.winner_label ? `ผลลัพธ์: ${msg.winner_label}` : '';
+    appendTrainLog(`🎮 จบเกมจำลองที่ ${msg.episode}/${msg.total_episodes} ${outcomeStr} (สะสมในสมองแล้ว: ${msg.buffer_size} ตำแหน่ง)`);
   } else if (msg.type === 'epoch_end') {
     appendTrainLog(`🧠 Epoch ${msg.epoch}: Total Loss = ${msg.loss.toFixed(4)} (Policy = ${msg.policy_loss.toFixed(4)}, Value = ${msg.value_loss.toFixed(4)})`);
   } else if (msg.type === 'iter_end') {

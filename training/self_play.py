@@ -30,14 +30,17 @@ class SelfPlayWorker:
         self,
         temp_threshold: int = 14,
         step_callback: Optional[Callable[[Board, int, int], None]] = None,
-    ) -> List[Tuple[np.ndarray, np.ndarray, float]]:
-        """Plays a single game of self-play and returns training examples.
+    ) -> Tuple[List[Tuple[np.ndarray, np.ndarray, float]], int]:
+        """Plays a single game of self-play and returns training examples and final winner.
         
         Args:
             temp_threshold: Ply count before temperature drops from 1.0 to 0.2 (more exploitation)
+            step_callback: Optional callback invoked after each move
             
         Returns:
-            List of (canonical_state_tensor, target_policy_pi, game_outcome_z)
+            Tuple of (training_samples, winner):
+                training_samples: List of (canonical_state_tensor, target_policy_pi, game_outcome_z)
+                winner: 1 (White wins), -1 (Black wins), 0 (Draw)
         """
         board = Board()
         board.setup_initial_position()
@@ -68,6 +71,7 @@ class SelfPlayWorker:
             action_indices = np.where(pi > 0)[0]
             if len(action_indices) == 0:
                 # No legal moves, terminate
+                done, winner = board.check_game_over()
                 break
 
             action_probs = pi[action_indices]
@@ -81,15 +85,17 @@ class SelfPlayWorker:
                 step_callback(board, chosen_action, acting_player)
             done, winner = board.check_game_over()
 
+        final_winner = 0 if winner is None else winner
+
         # Build training tuples with final outcome z
         training_samples: List[Tuple[np.ndarray, np.ndarray, float]] = []
         for state_tensor, target_pi, acting_player in episode_data:
-            if winner is None or winner == 0:
+            if final_winner == 0:
                 z = 0.0
-            elif winner == acting_player:
+            elif final_winner == acting_player:
                 z = 1.0
             else:
                 z = -1.0
             training_samples.append((state_tensor, target_pi, z))
 
-        return training_samples
+        return training_samples, final_winner

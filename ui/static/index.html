@@ -323,6 +323,63 @@
       </div>
     </div>
 
+    <!-- Real-Time Self-Play Win/Loss/Draw Distribution Card -->
+    <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 shadow-lg backdrop-blur-md">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+        <div class="flex items-center space-x-2">
+          <span class="text-base">⚖️</span>
+          <div>
+            <h3 class="text-xs font-bold text-slate-200 uppercase tracking-wider">
+              สถิติผลการแข่งขันจำลอง (Self-Play Win / Loss / Draw Rate)
+            </h3>
+            <p class="text-[11px] text-slate-400">
+              AlphaZero ฝึกฝนทั้งหมากขาวและหมากดำพร้อมกันด้วยโครงข่ายประสาทเทียมตัวเดียวกัน
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 font-mono text-xs">
+          <span class="text-slate-400">เกมทั้งหมด: <strong id="stat-total-games" class="text-amber-400">0 เกม</strong></span>
+        </div>
+      </div>
+
+      <!-- 3 Metrics & Bar -->
+      <div class="grid grid-cols-3 gap-2 sm:gap-4 text-center mb-3">
+        <!-- White Wins -->
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-2.5">
+          <span class="text-[11px] font-semibold text-slate-300 flex items-center justify-center gap-1">
+            ⚪ ขาวชนะ (White)
+          </span>
+          <p id="stat-white-wins" class="text-base sm:text-lg font-mono font-bold text-slate-100 mt-0.5">0 (0.0%)</p>
+        </div>
+        <!-- Black Wins -->
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-2.5">
+          <span class="text-[11px] font-semibold text-slate-400 flex items-center justify-center gap-1">
+            ⚫ ดำชนะ (Black)
+          </span>
+          <p id="stat-black-wins" class="text-base sm:text-lg font-mono font-bold text-amber-300 mt-0.5">0 (0.0%)</p>
+        </div>
+        <!-- Draws -->
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-2.5">
+          <span class="text-[11px] font-semibold text-cyan-400 flex items-center justify-center gap-1">
+            🤝 เสมอกัน (Draw)
+          </span>
+          <p id="stat-draws" class="text-base sm:text-lg font-mono font-bold text-cyan-300 mt-0.5">0 (0.0%)</p>
+        </div>
+      </div>
+
+      <!-- Segmented Proportion Bar -->
+      <div class="w-full bg-slate-800/80 rounded-full h-3 flex overflow-hidden p-0.5 gap-0.5 border border-slate-700/60">
+        <div id="bar-stat-white" class="bg-slate-200 h-full rounded-l-full transition-all duration-300" style="width: 0%" title="⚪ ขาวชนะ"></div>
+        <div id="bar-stat-black" class="bg-amber-600 h-full transition-all duration-300" style="width: 0%" title="⚫ ดำชนะ"></div>
+        <div id="bar-stat-draw" class="bg-cyan-500 h-full rounded-r-full transition-all duration-300" style="width: 0%" title="🤝 เสมอ"></div>
+      </div>
+      <div class="flex justify-between items-center text-[10px] text-slate-500 mt-1 font-mono">
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-slate-200 inline-block"></span> ⚪ ขาว (เดินก่อน)</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-amber-600 inline-block"></span> ⚫ ดำ (เดินทีหลัง)</span>
+        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-cyan-500 inline-block"></span> 🤝 เสมอ (3-Fold / กฎ 50 ตา)</span>
+      </div>
+    </div>
+
     <!-- Main Grid: Live Board (Left) & Real-time Charts & Controls (Right) -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
 

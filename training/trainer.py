@@ -91,6 +91,13 @@ class Trainer:
         self.replay_buffer = ReplayBuffer(capacity=self.config.buffer_capacity)
         os.makedirs(self.config.checkpoint_dir, exist_ok=True)
 
+        self.self_play_stats: Dict[str, int] = {
+            "white_wins": 0,
+            "black_wins": 0,
+            "draws": 0,
+            "total_games": 0,
+        }
+
         self.stop_requested = False
         self.on_step = on_step
         self.on_episode_end = on_episode_end
@@ -187,13 +194,36 @@ class Trainer:
                     if self.visual_delay > 0:
                         time.sleep(self.visual_delay)
 
-                samples = worker.play_game(step_callback=_step_cb)
+                samples, winner = worker.play_game(step_callback=_step_cb)
                 self.replay_buffer.extend(samples)
                 new_samples += len(samples)
-                print(f"  Episode {ep}/{self.config.episodes_per_iter}: +{len(samples)} samples (Total buffer: {len(self.replay_buffer)})")
+
+                self.self_play_stats["total_games"] += 1
+                if winner == 1:
+                    self.self_play_stats["white_wins"] += 1
+                    winner_str = "⚪ ขาวชนะ"
+                elif winner == -1:
+                    self.self_play_stats["black_wins"] += 1
+                    winner_str = "⚫ ดำชนะ"
+                else:
+                    self.self_play_stats["draws"] += 1
+                    winner_str = "🤝 เสมอ"
+
+                print(
+                    f"  Episode {ep}/{self.config.episodes_per_iter}: {winner_str} | +{len(samples)} samples "
+                    f"(Total buffer: {len(self.replay_buffer)}) "
+                    f"[⚪ {self.self_play_stats['white_wins']} | ⚫ {self.self_play_stats['black_wins']} | 🤝 {self.self_play_stats['draws']}]"
+                )
 
                 if self.on_episode_end:
-                    self.on_episode_end(iteration, ep, self.config.episodes_per_iter, len(self.replay_buffer))
+                    self.on_episode_end(
+                        iteration,
+                        ep,
+                        self.config.episodes_per_iter,
+                        len(self.replay_buffer),
+                        winner,
+                        dict(self.self_play_stats),
+                    )
 
             if self.stop_requested:
                 break
