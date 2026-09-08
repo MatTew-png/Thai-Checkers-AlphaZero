@@ -16,7 +16,7 @@ from env.thai_checkers import (
     ACTION_SPACE_SIZE,
     NUM_SQUARES,
 )
-from baseline.minimax import evaluate_board
+from baseline.minimax import evaluate_board, order_moves
 
 
 class MinimaxWarmupWorker:
@@ -75,11 +75,11 @@ class MinimaxWarmupWorker:
         if not legal_moves:
             return -100000.0 if board.current_player == Player.P1 else 100000.0
 
-        legal_moves.sort(key=lambda m: m.is_capture, reverse=True)
+        ordered_moves = order_moves(board, legal_moves)
 
         if is_maximizing:
             max_eval = -float("inf")
-            for m in legal_moves:
+            for m in ordered_moves:
                 clone_b = board.clone()
                 clone_b.step(m)
                 ev = self._minimax(clone_b, depth - 1, alpha, beta, False)
@@ -90,12 +90,14 @@ class MinimaxWarmupWorker:
             return max_eval
         else:
             min_eval = float("inf")
-            for m in legal_moves:
+            for m in ordered_moves:
                 clone_b = board.clone()
                 clone_b.step(m)
                 ev = self._minimax(clone_b, depth - 1, alpha, beta, True)
                 min_eval = min(min_eval, ev)
                 beta = min(beta, ev)
+                if beta <= alpha:
+                    break
             return min_eval
 
     def play_game(

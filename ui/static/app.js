@@ -271,19 +271,24 @@ async function triggerAIMove() {
   const diff = document.getElementById('select-difficulty').value;
   let sims = 150;
   let engine = 'alphazero';
+  let depth = 5;
 
   if (diff === 'az-50') sims = 50;
   else if (diff === 'az-150') sims = 150;
   else if (diff === 'az-400') sims = 400;
-  else if (diff === 'minimax') engine = 'minimax';
+  else if (diff === 'minimax') {
+    engine = 'minimax';
+    depth = 5;
+  }
 
-  document.getElementById('turn-text').innerHTML = '🤖 <span class="animate-pulse">AlphaZero กำลังคำนวณการเดิน...</span>';
+  const engineName = engine === 'minimax' ? 'Minimax Grandmaster' : 'AlphaZero';
+  document.getElementById('turn-text').innerHTML = `🤖 <span class="animate-pulse">${engineName} กำลังคิดตาเดิน...</span>`;
 
   try {
     const res = await fetch('/api/ai_move', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ simulations: sims, engine: engine, temperature: 0.0 })
+      body: JSON.stringify({ simulations: sims, engine: engine, depth: depth, temperature: 0.0 })
     });
 
     if (res.ok) {
@@ -292,7 +297,8 @@ async function triggerAIMove() {
 
       if (data.ai_move) {
         playSound('move');
-        logMove(data.current_player === 1 ? 'AI 1' : 'AlphaZero', data.ai_move);
+        const aiLabel = engine === 'minimax' ? 'Minimax GM' : (data.current_player === 1 ? 'AI 1' : 'AlphaZero');
+        logMove(aiLabel, data.ai_move);
       }
 
       if (data.mcts_candidates) {

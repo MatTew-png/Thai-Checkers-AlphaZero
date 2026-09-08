@@ -130,6 +130,7 @@ class HumanMoveRequest(BaseModel):
 class AIMoveRequest(BaseModel):
     simulations: int = 150
     engine: str = "alphazero"  # "alphazero" or "minimax"
+    depth: int = 5
     temperature: float = 0.0
 
 
@@ -226,9 +227,25 @@ def play_ai_move(req: AIMoveRequest):
     candidate_thoughts: List[Dict[str, Any]] = []
 
     if req.engine == "minimax":
-        mm = MinimaxAgent(depth=3)
+        depth_to_use = req.depth if req.depth >= 3 else 5
+        mm = MinimaxAgent(depth=depth_to_use)
         chosen_move = mm.select_move(game_board)
         chosen_action = chosen_move.action_id
+
+        # Thought visualization for Minimax
+        f_sq, t_sq = chosen_move.from_sq, chosen_move.to_sq
+        candidate_thoughts.append({
+            "from_sq": f_sq,
+            "to_sq": t_sq,
+            "from_coord": SQ_TO_COORD[f_sq],
+            "to_coord": SQ_TO_COORD[t_sq],
+            "from_algebraic": sq_to_algebraic(f_sq),
+            "to_algebraic": sq_to_algebraic(t_sq),
+            "notation": f"{sq_to_algebraic(f_sq)}{'x' if chosen_move.is_capture else '-'}{sq_to_algebraic(t_sq)}",
+            "visits": 100,
+            "percentage": 100.0,
+            "q_value": 1.0 if game_board.current_player == Player.P1 else -1.0,
+        })
     else:
         # AlphaZero MCTS
         mcts = MCTS(model, MCTSConfig(num_simulations=req.simulations))
