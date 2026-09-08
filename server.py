@@ -276,10 +276,12 @@ def play_ai_move(req: AIMoveRequest):
                     "q_value": node.value,
                 })
 
+    acting_player = game_board.current_player
     from_sq, to_sq = Move.from_action_id(chosen_action)
     game_board.step(chosen_action)
 
     resp = serialize_board_state(game_board)
+    resp["acting_player"] = acting_player
     resp["ai_move"] = {
         "from_sq": from_sq,
         "to_sq": to_sq,

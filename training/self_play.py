@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import List, Tuple, Optional, Callable
 import numpy as np
 
-from env.thai_checkers import Board, Player
+from env.thai_checkers import Board, Player, ACTION_SPACE_SIZE, canonicalize_action
 from models.net import ThaiCheckersNet
 from mcts.mcts import MCTS, MCTSConfig
 
@@ -87,8 +87,12 @@ class SelfPlayWorker:
                 add_dirichlet_noise=True,
             )
 
-            # Record step
-            episode_data.append((state_tensor, pi, board.current_player, is_full_search))
+            # Record step (mapped to canonical action space)
+            can_pi = np.zeros(ACTION_SPACE_SIZE, dtype=np.float32)
+            for act in np.where(pi > 0)[0]:
+                can_act = canonicalize_action(act, board.current_player)
+                can_pi[can_act] = pi[act]
+            episode_data.append((state_tensor, can_pi, board.current_player, is_full_search))
 
             # Sample action from pi
             action_indices = np.where(pi > 0)[0]

@@ -15,6 +15,7 @@ from env.thai_checkers import (
     Move,
     ACTION_SPACE_SIZE,
     NUM_SQUARES,
+    canonicalize_action,
 )
 from baseline.minimax import evaluate_board, order_moves
 
@@ -145,16 +146,18 @@ class MinimaxWarmupWorker:
             exp_scores = np.exp(scores / (temp * 50.0))  # Scale factor for heuristic score range
             probs = exp_scores / (np.sum(exp_scores) + 1e-8)
 
-            # Map to actions for the policy target
+            # Map to actions for the policy target in canonical space
             for (m, _), prob in zip(scored_moves, probs):
-                pi[m.action_id] = prob
+                can_act = canonicalize_action(m.action_id, acting_player)
+                pi[can_act] = prob
 
             # Normalize pi
             sum_pi = np.sum(pi)
             if sum_pi > 0:
                 pi /= sum_pi
             else:
-                pi[scored_moves[0][0].action_id] = 1.0
+                first_can_act = canonicalize_action(scored_moves[0][0].action_id, acting_player)
+                pi[first_can_act] = 1.0
 
             episode_records.append((state_tensor, pi, acting_player))
 

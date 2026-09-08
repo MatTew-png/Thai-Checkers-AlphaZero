@@ -297,8 +297,9 @@ async function triggerAIMove() {
 
       if (data.ai_move) {
         playSound('move');
-        const aiLabel = engine === 'minimax' ? 'Minimax GM' : (data.current_player === 1 ? 'AI 1' : 'AlphaZero');
-        logMove(aiLabel, data.ai_move);
+        const colorName = data.acting_player === 1 ? '⚪ ขาว' : '⚫ ดำ';
+        const engineLabel = engine === 'minimax' ? 'Minimax GM' : 'AlphaZero';
+        logMove(`${colorName} (${engineLabel})`, data.ai_move);
       }
 
       if (data.mcts_candidates) {

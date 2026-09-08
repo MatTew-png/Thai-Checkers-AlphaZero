@@ -158,6 +158,20 @@ class Move:
         return action_id // 32, action_id % 32
 
 
+def canonicalize_action(action_id: int, current_player: int) -> int:
+    """Converts a real board action ID to canonical action ID (180-degree rotation for P2)."""
+    if current_player == Player.P1:
+        return action_id
+    from_sq = action_id // 32
+    to_sq = action_id % 32
+    return (31 - from_sq) * 32 + (31 - to_sq)
+
+
+def decanonicalize_action(canonical_action_id: int, current_player: int) -> int:
+    """Converts a canonical action ID back to real board action ID."""
+    return canonicalize_action(canonical_action_id, current_player)
+
+
 class Board:
     def __init__(self):
         # 32 playable squares
@@ -507,6 +521,14 @@ class Board:
         mask = np.zeros(ACTION_SPACE_SIZE, dtype=bool)
         for move in self.get_legal_moves():
             mask[move.action_id] = True
+        return mask
+
+    def get_canonical_legal_action_mask(self) -> np.ndarray:
+        """Returns a boolean array of size 1024 indicating legal actions in canonical coordinates."""
+        mask = np.zeros(ACTION_SPACE_SIZE, dtype=bool)
+        for move in self.get_legal_moves():
+            can_act = canonicalize_action(move.action_id, self.current_player)
+            mask[can_act] = True
         return mask
 
     def get_canonical_form(self) -> Board:

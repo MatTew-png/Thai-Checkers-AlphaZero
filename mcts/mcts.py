@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 
-from env.thai_checkers import Board, ACTION_SPACE_SIZE
+from env.thai_checkers import Board, ACTION_SPACE_SIZE, canonicalize_action
 from models.net import ThaiCheckersNet
 
 
@@ -83,22 +83,28 @@ class MCTS:
         # Initial expansion of root node
         canonical_board = board.get_canonical_form()
         state_tensor = canonical_board.get_tensor_representation()
-        legal_mask = board.get_legal_action_mask()
-        legal_actions = np.where(legal_mask)[0].tolist()
+        can_legal_mask = board.get_canonical_legal_action_mask()
+        legal_actions = [m.action_id for m in board.get_legal_moves()]
 
         if not legal_actions:
             return root
 
-        policy_probs, _ = self.model.predict(state_tensor, legal_mask=legal_mask)
+        can_policy_probs, _ = self.model.predict(state_tensor, legal_mask=can_legal_mask)
+
+        # Map canonical probabilities to real board action priors
+        real_priors = np.zeros(ACTION_SPACE_SIZE, dtype=np.float32)
+        for act in legal_actions:
+            can_act = canonicalize_action(act, board.current_player)
+            real_priors[act] = can_policy_probs[can_act]
 
         # Inject Dirichlet exploration noise at root if requested (for self-play)
         if add_dirichlet_noise and len(legal_actions) > 0:
             noise = np.random.dirichlet([self.config.dirichlet_alpha] * len(legal_actions))
             eps = self.config.dirichlet_epsilon
             for i, act in enumerate(legal_actions):
-                policy_probs[act] = (1 - eps) * policy_probs[act] + eps * noise[i]
+                real_priors[act] = (1 - eps) * real_priors[act] + eps * noise[i]
 
-        root.expand(legal_actions, policy_probs)
+        root.expand(legal_actions, real_priors)
 
         # Run simulations
         for _ in range(sims):
@@ -136,12 +142,16 @@ class MCTS:
             # Expand leaf node using neural network prediction
             canonical_board = board.get_canonical_form()
             state_tensor = canonical_board.get_tensor_representation()
-            legal_mask = board.get_legal_action_mask()
-            legal_actions = np.where(legal_mask)[0].tolist()
+            can_legal_mask = board.get_canonical_legal_action_mask()
+            legal_actions = [m.action_id for m in board.get_legal_moves()]
 
-            policy_probs, leaf_value = self.model.predict(state_tensor, legal_mask=legal_mask)
+            can_policy_probs, leaf_value = self.model.predict(state_tensor, legal_mask=can_legal_mask)
             if legal_actions:
-                node.expand(legal_actions, policy_probs)
+                real_priors = np.zeros(ACTION_SPACE_SIZE, dtype=np.float32)
+                for act in legal_actions:
+                    can_act = canonicalize_action(act, board.current_player)
+                    real_priors[act] = can_policy_probs[can_act]
+                node.expand(legal_actions, real_priors)
 
             # leaf_value is from perspective of current active player on the leaf board
             value = leaf_value
